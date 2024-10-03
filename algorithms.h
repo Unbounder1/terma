@@ -9,7 +9,7 @@
 typedef struct BKTreeNode {
     char *word;                
     int distance;           
-    struct BKTreeNode *children[10];
+    struct BKTreeNode *children[30];
 } BKTreeNode;
 
 // Define the Doubly linked list structure

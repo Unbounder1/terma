@@ -1,12 +1,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "algorithms.h"
 
 BKTreeNode* createNode(const char *word) {
     BKTreeNode *node = (BKTreeNode*)malloc(sizeof(BKTreeNode));
     node->word = strdup(word); // Store a copy of the word
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 30; i++) {
         node->children[i] = NULL;
     }
     return node;
@@ -25,13 +26,13 @@ void free_list(List *node) {
     free(node);        // Free the node itself
 }
 
-List* create_node(const char *word){
+List* create_node(const char *word) {
     List* new_node = (List *)malloc(sizeof(List));
     if (new_node == NULL){
         perror("Mem Alloc Error");
     }
 
-    new_node->word = word;
+    new_node->word = strdup(word); 
     new_node->prev = NULL;
     new_node->next = NULL;
 
@@ -39,7 +40,7 @@ List* create_node(const char *word){
 }
 
 void insert_list(List **head, const char *word, int distance) {
-    List *new_node = create_node(word);
+    List *new_node = create_node(word);  // Create a new node with the word
     
     // If the list is empty, make the new node the head
     if (*head == NULL) {
@@ -48,8 +49,8 @@ void insert_list(List **head, const char *word, int distance) {
     }
 
     List *current = *head;
-    current = current->next;
 
+    // If the new node should be inserted at the head
     if (current->distance > distance) {
         new_node->next = current;
         current->prev = new_node;
@@ -57,52 +58,52 @@ void insert_list(List **head, const char *word, int distance) {
         return;
     }
 
-    // Traverse to the end of the list
-    while (current != NULL) {
-        while (current != NULL) {
-        if (current->distance > distance) {
-            new_node->next = current;
-            new_node->prev = current->prev;
-            current->prev->next = new_node;
-            current->prev = new_node;
+    // Traverse the list to find the correct position
+    while (current != NULL && current->distance <= distance) {
+        if (current->next == NULL || current->next->distance > distance) {
+            new_node->next = current->next;
+            if (current->next != NULL) {
+                current->next->prev = new_node;
+            }
+            current->next = new_node;
+            new_node->prev = current;
             return;
         }
         current = current->next;
     }
-
-    List *last = *head;
-    last = current -> prev;
-    last->next = new_node;
-    new_node->prev = last;
-    return;
-
 }
 
 void insert_bk(BKTreeNode *root, const char *word) {
-    int distance = levenshtein(root->word, word);
+    if (root == NULL) {
+        fprintf(stderr, "Error: root is NULL\n");
+        return;
+    }
+    int distance = levenshtein_distance(root->word, word);
     
-    // If a child at this distance exists, recursively insert there
+    if (distance < 0 || distance >= 30) {
+        fprintf(stderr, "Error: distance is out of bounds\n");
+        return;
+    }
+
     if (root->children[distance] != NULL) {
-        insert(root->children[distance], word);
+        insert_bk(root->children[distance], word);
     } else {
-        // Create a new node if no child exists
         root->children[distance] = createNode(word);
     }
 }
 
 void query(BKTreeNode *root, const char *word, int threshold, List *output) {
-    int distance = levenshtein(root->word, word);
+    int distance = levenshtein_distance(root->word, word);
     
     // If the distance is within the threshold, print the word
     if (distance <= threshold) {
-        printf("Match: %s (Distance: %d)\n", root->word, distance);
-        insert_list(output, root->word);
+        insert_list(&output, root->word, distance);
     }
 
     // Explore the children within the range of [distance - threshold, distance + threshold]
     for (int i = fmax(0, distance - threshold); i <= distance + threshold; i++) {
         if (root->children[i] != NULL) {
-            query(root->children[i], word, threshold);
+            query(root->children[i], word, threshold, output);
         }
     }
 }
@@ -163,7 +164,7 @@ int main() {
     char word1[] = "kitten";
     char word2[] = "sitting";
 
-    int distance = levenshtein_distance(word1, word2);
+    int distance = levenshtein_distance(root->word, word);;
     printf("The Levenshtein distance between %s and %s is: %d\n", word1, word2, distance);
 
     return 0;

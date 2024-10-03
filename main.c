@@ -22,6 +22,7 @@ int handle_output(char buffer[256], List* suggestionList, BKTreeNode* bktree, co
     reti = regcomp(&regex, "command not found", 0);
 
     if (!reti){
+        free_list(suggestionList);
         query(bktree, word, 4, suggestionList);
         return 1;
     }
@@ -94,18 +95,19 @@ void interact_with_pty(int master_fd, List* suggestionList, BKTreeNode* bktree) 
             if (nread > 0) {
                 // Check if user pressed tab
                 if (buffer[0] == '\t') {
+                    
                     handle_tab_autocomplete(suggestionList, cmdBuffer, bktree);
                 } else if (buffer[0] == '\n') {
-                    // Send the full command to the master PTY and reset cmdBuffer
-                    write(master_fd, cmdBuffer, cmd_len);  // Send the input to the master PTY
-                    write(master_fd, "\n", 1);  // Send newline
-                    cmd_len = 0;  // Reset the command length
-                    memset(cmdBuffer, 0, sizeof(cmdBuffer));  // Clear the buffer
+                    write(master_fd, cmdBuffer, cmd_len);
+                    write(master_fd, "\n", 1); 
+
+                    cmd_len = 0;
+                    memset(cmdBuffer, 0, sizeof(cmdBuffer)); 
                 } else {
-                    // Handle other input (regular characters)
-                    strncat(cmdBuffer, buffer, nread);  // Append to the command buffer
-                    cmd_len += nread;
-                    write(master_fd, buffer, nread);  // Forward to master PTY
+                  
+                    strncpy(cmdBuffer, buffer, nread);
+                    cmd_len = nread;
+                    write(master_fd, buffer, nread);
                 }
             }
         }
@@ -116,7 +118,6 @@ void interact_with_pty(int master_fd, List* suggestionList, BKTreeNode* bktree) 
             if (nread > 0) {
                 write(STDOUT_FILENO, buffer, nread);  // Write PTY output to the terminal
                 suggestion_flag = handle_output(buffer, suggestionList, bktree, cmdBuffer);
-
             } else if (nread == 0) {
                 // EOF: the process running in the slave PTY has exited
                 break;
@@ -125,26 +126,29 @@ void interact_with_pty(int master_fd, List* suggestionList, BKTreeNode* bktree) 
     }
 }
 
-void init_Config(BKTreeNode* bktree){
+void init_Config(BKTreeNode* bktree) {
 
-    const char *configFile = "terma.conf"; // Check if config file exists
+    const char *configFile = "terma.conf"; 
     FILE *file = fopen(configFile, "r");
     char buffer[256];
 
     if (file) {
-
-        if (file == NULL) {
-            perror("Error opening file");
-        }
-
+        // Read each line from the configuration file
         while (fgets(buffer, sizeof(buffer), file) != NULL) {
+
+            size_t len = strlen(buffer);
+            if (len > 0 && buffer[len - 1] == '\n') {
+                buffer[len - 1] = '\0';
+            }
+
             insert_bk(bktree, buffer);
         }
-
+        fclose(file);  \
     } else {
+
+        perror("Error opening config file");
         get_Path();
     }
-
 }
 
 int main() {
@@ -152,7 +156,10 @@ int main() {
     pid_t pid;
     char *shell = "/bin/bash";  // The shell to run in the slave PTY
 
+    printf("hi\r\n");
+
     BKTreeNode *bktree = createNode("terma");
+    List *suggestionList = NULL;
     init_Config(bktree);
 
     // Step 1: Fork a child process and create a new PTY
@@ -169,7 +176,7 @@ int main() {
         exit(EXIT_FAILURE);
     } else {  // Parent process (Master PTY)
         // The parent process interacts with the master PTY
-        interact_with_pty(master_fd);
+        interact_with_pty(master_fd, suggestionList, bktree);
 
         // Wait for the child process to finish
         waitpid(pid, NULL, 0);
