@@ -57,56 +57,6 @@ While running in an interactive terminal, the program listens for user input. Wh
 
 This program uses recursion in its BK-Tree insertion and query functions. If a segmentation fault occurs, it can be difficult to trace the issue. To help with debugging, compile the program with `-g` and use `gdb`.
 
-### Debugging with `gdb`
-
-If you encounter a segmentation fault (SIGSEGV), you can debug it using `gdb`:
-
-1. **Compile with debugging symbols**:
-
-   ```bash
-   gcc -g -o myprogram main.c config.c algorithms.c -lm
-   ```
-
-2. **Run with `gdb`**:
-
-   ```bash
-   gdb ./myprogram
-   ```
-
-3. **Set breakpoints**:
-
-   You can set breakpoints to pause execution at specific points, such as the start of the `insert_bk` function:
-
-   ```gdb
-   (gdb) break insert_bk
-   ```
-
-4. **Run the program**:
-
-   Start running the program:
-
-   ```gdb
-   (gdb) run
-   ```
-
-5. **Inspect Segmentation Faults**:
-
-   If the program crashes, use the `backtrace` command to see where the crash occurred:
-
-   ```gdb
-   (gdb) backtrace
-   ```
-
-   This will show you the sequence of function calls leading to the crash.
-
-6. **Inspect variables**:
-
-   Use `print` to check the value of pointers or variables at any point in the program:
-
-   ```gdb
-   (gdb) print root
-   ```
-
 ## Usage
 
 1. **Running the Program**:
