@@ -13,62 +13,75 @@
 #include "algorithms.h"
 #include "config.h"
 
+void print_to_slave(int master_fd, const char *message) {
+    write(master_fd, message, strlen(message));  // Write message directly to the slave PTY
+}
 
-int handle_output(char buffer[256], List* suggestionList, BKTreeNode* bktree, const char *word){
+void sanitize_input(char *input, char *sanitized) {
+    int j = 0;
+    for (int i = 0; input[i] != '\0'; i++) {
+        if (isprint(input[i])) {  // Only copy printable characters
+            sanitized[j++] = input[i];
+        }
+    }
+    sanitized[j] = '\0';  // Null-terminate the sanitized string
+}
+
+void extract_command(char *buffer, char *command) {
+    int start = 0;
+
+    // Find where the prompt ends (e.g., '$' character or another recognizable prompt symbol)
+    for (int i = 0; buffer[i] != '\0'; i++) {
+        if (buffer[i] == '$' || buffer[i] == '#') {
+            start = i + 1;  // The command starts after the prompt symbol
+            break;
+        }
+    }
+
+    // Copy only the command part from the buffer, skipping leading spaces
+    while (isspace(buffer[start])) {
+        start++;
+    }
+
+    strcpy(command, &buffer[start]);
+}
+
+int handle_output(char buffer[256], List* suggestionList, BKTreeNode* bktree, char* inputBuffer, int master_fd) {
     regex_t regex;
     int reti;
+    char word[255] = {0}; 
+    char message[512] = {0}; 
 
-    // check if command not found (no suggestions)
-    reti = regcomp(&regex, "command not found", 0);
+    extract_command(inputBuffer, word); 
 
-    if (!reti){
-        free_list(suggestionList);
-        query(bktree, word, 4, suggestionList);
+    snprintf(message, sizeof(message), "Buffer: %s\n", word);
+    print_to_slave(master_fd, message);  
+
+    reti = regcomp(&regex, "command", 0);
+
+    if (reti == 0) {
+        free_list(suggestionList);  
+        char sanitized[256] = {0};
+        sanitize_input(inputBuffer, sanitized);
+        query(bktree, sanitized, 4, suggestionList);
+
+        List *temp = suggestionList;
+        if (temp != NULL) {
+            // Iterate over the suggestion list and print each word to the slave PTY
+            while (temp != NULL) {
+                snprintf(message, sizeof(message), "Suggestion: %s\n", temp->word);  
+                print_to_slave(master_fd, message); 
+                temp = temp->next;
+            }
+        }
         return 1;
     }
     return 0;
-
-}
-
-void handle_tab_autocomplete(List* suggestionList, char* cmdBuffer, BKTreeNode* bktree) {
-    List *current = suggestionList;
-    List *matched = NULL;
-    int matches = 0;
-    size_t len = strlen(cmdBuffer);
-
-    // Traverse the suggestion list and check for matches
-    while (current != NULL) {
-        // If the word starts with the current buffer
-        if (strncmp(current->word, cmdBuffer, len) == 0) {
-            matched = current;  // Track the match
-            matches++;
-        }
-        current = current->next;
-    }
-
-    if (matches == 1) {
-        // If only one match, autocomplete it
-        strcpy(cmdBuffer, matched->word);
-        printf("\r%s", cmdBuffer);  // Print the completed command
-        fflush(stdout);
-    } else if (matches > 1) {
-        // If multiple matches, list them
-        printf("\nPossible completions:\n");
-        current = suggestionList;
-        while (current != NULL) {
-            if (strncmp(current->word, cmdBuffer, len) == 0) {
-                printf("%s ", current->word);
-            }
-            current = current->next;
-        }
-        printf("\n%s", cmdBuffer);  // Reprint the current buffer for the user
-        fflush(stdout);
-    }
 }
 
 // Function to handle the I/O between master PTY and user terminal
 void interact_with_pty(int master_fd, List* suggestionList, BKTreeNode* bktree) {
-    char buffer[256];
+    char inputBuffer[256];
     char cmdBuffer[256];
     fd_set read_fds;
     ssize_t nread;
@@ -90,34 +103,21 @@ void interact_with_pty(int master_fd, List* suggestionList, BKTreeNode* bktree) 
 
         // If there's input from the terminal (stdin)
         if (FD_ISSET(STDIN_FILENO, &read_fds)) {
-            nread = read(STDIN_FILENO, buffer, sizeof(buffer));
-
+            nread = read(STDIN_FILENO, inputBuffer, sizeof(inputBuffer));
             if (nread > 0) {
-                // Check if user pressed tab
-                if (buffer[0] == '\t') {
-                    
-                    handle_tab_autocomplete(suggestionList, cmdBuffer, bktree);
-                } else if (buffer[0] == '\n') {
-                    write(master_fd, cmdBuffer, cmd_len);
-                    write(master_fd, "\n", 1); 
-
-                    cmd_len = 0;
-                    memset(cmdBuffer, 0, sizeof(cmdBuffer)); 
-                } else {
-                  
-                    strncpy(cmdBuffer, buffer, nread);
-                    cmd_len = nread;
-                    write(master_fd, buffer, nread);
-                }
+                // Simply write the input from stdin to the master PTY
+                write(master_fd, inputBuffer, nread);
             }
         }
 
         // If there's output from the master PTY
         if (FD_ISSET(master_fd, &read_fds)) {
-            nread = read(master_fd, buffer, sizeof(buffer));
+            nread = read(master_fd, cmdBuffer, sizeof(cmdBuffer));
             if (nread > 0) {
-                write(STDOUT_FILENO, buffer, nread);  // Write PTY output to the terminal
-                suggestion_flag = handle_output(buffer, suggestionList, bktree, cmdBuffer);
+                if (strncmp(cmdBuffer, inputBuffer, strlen(inputBuffer)) != 0){
+                    handle_output(inputBuffer, suggestionList, bktree, cmdBuffer, master_fd);
+                    write(STDOUT_FILENO, cmdBuffer, nread);
+                } 
             } else if (nread == 0) {
                 // EOF: the process running in the slave PTY has exited
                 break;
@@ -162,7 +162,7 @@ int main() {
     List *suggestionList = NULL;
     init_Config(bktree);
 
-    // Step 1: Fork a child process and create a new PTY
+    // Fork a child process and create a new PTY
     pid = forkpty(&master_fd, NULL, NULL, NULL);
     if (pid < 0) {
         perror("forkpty");
